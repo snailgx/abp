@@ -3,10 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Volo.Abp.Cli.Http;
+using Volo.Abp.Cli.ProjectBuilding;
 using Volo.Abp.Cli.Utils;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.IO;
@@ -20,19 +21,22 @@ namespace Volo.Abp.Cli.ProjectModification
 
         protected IJsonSerializer JsonSerializer { get; }
         protected ProjectNpmPackageAdder NpmPackageAdder { get; }
-        protected AbpModuleClassFinder ModuleClassFinder { get; }
+        protected DerivedClassFinder ModuleClassFinder { get; }
         protected ModuleClassDependcyAdder ModuleClassDependcyAdder { get; }
+        protected IRemoteServiceExceptionHandler RemoteServiceExceptionHandler { get; }
 
         public ProjectNugetPackageAdder(
             IJsonSerializer jsonSerializer,
             ProjectNpmPackageAdder npmPackageAdder,
-            AbpModuleClassFinder moduleClassFinder,
-            ModuleClassDependcyAdder moduleClassDependcyAdder)
+            DerivedClassFinder moduleClassFinder,
+            ModuleClassDependcyAdder moduleClassDependcyAdder,
+            IRemoteServiceExceptionHandler remoteServiceExceptionHandler)
         {
             JsonSerializer = jsonSerializer;
             NpmPackageAdder = npmPackageAdder;
             ModuleClassFinder = moduleClassFinder;
             ModuleClassDependcyAdder = moduleClassDependcyAdder;
+            RemoteServiceExceptionHandler = remoteServiceExceptionHandler;
             Logger = NullLogger<ProjectNugetPackageAdder>.Instance;
         }
 
@@ -52,7 +56,7 @@ namespace Volo.Abp.Cli.ProjectModification
 
                 CmdHelper.Run("dotnet", "add package " + package.Name);
 
-                var moduleFiles = ModuleClassFinder.Find(projectFile);
+                var moduleFiles = ModuleClassFinder.Find(projectFile, "AbpModule");
                 if (moduleFiles.Count == 0)
                 {
                     throw new CliUsageException($"Could not find a class derived from AbpModule in the project {projectFile}");
@@ -71,9 +75,9 @@ namespace Volo.Abp.Cli.ProjectModification
 
         protected virtual async Task<NugetPackageInfo> FindNugetPackageInfoAsync(string moduleName)
         {
-            using (var client = new HttpClient())
+            using (var client = new CliHttpClient())
             {
-                var url = "https://localhost:44328/api/app/nugetPackage/byName/?name=" + moduleName;
+                var url = $"{CliUrls.WwwAbpIo}api/app/nugetPackage/byName/?name=" + moduleName;
 
                 var response = await client.GetAsync(url);
 
@@ -84,7 +88,7 @@ namespace Volo.Abp.Cli.ProjectModification
                         throw new CliUsageException($"'{moduleName}' nuget package could not be found!");
                     }
 
-                    throw new Exception($"ERROR: Remote server returns '{response.StatusCode}'");
+                    await RemoteServiceExceptionHandler.EnsureSuccessfulHttpResponseAsync(response);
                 }
 
                 var responseContent = await response.Content.ReadAsStringAsync();

@@ -7,19 +7,25 @@ namespace Volo.Abp.Cli.ProjectModification
 {
     public class ModuleClassDependcyAdder : ITransientDependency
     {
+        protected UsingStatementAdder UsingStatementAdder { get; }
+
+        public ModuleClassDependcyAdder(UsingStatementAdder usingStatementAdder)
+        {
+            UsingStatementAdder = usingStatementAdder;
+        }
+
         public virtual void Add(string path, string module)
         {
             ParseModuleNameAndNameSpace(module, out var nameSpace, out var moduleName);
 
             var file = File.ReadAllText(path);
 
-            if (file.Contains(GetUsingStatement(nameSpace)) && file.Contains(moduleName))
-            {
-                return;
-            }
+            file = UsingStatementAdder.Add(file, nameSpace);
 
-            file = InsertDependsOnAttribute(file, moduleName);
-            file = InsertUsingStatement(file, nameSpace);
+            if (!file.Contains(moduleName) )
+            {
+                file = InsertDependsOnAttribute(file, moduleName);
+            }
 
             File.WriteAllText(path, file);
         }
@@ -30,38 +36,6 @@ namespace Volo.Abp.Cli.ProjectModification
             var dependsOnAttribute = GetDependsOnAttribute(moduleName);
 
             return file.Insert(indexOfPublicClassDeclaration, dependsOnAttribute);
-        }
-
-        protected virtual string InsertUsingStatement(string file, string nameSpace)
-        {
-            var indexOfTheEndOfTheLastUsingStatement = GetIndexOfTheEndOfTheLastUsingStatement(file);
-
-            return file.Insert(indexOfTheEndOfTheLastUsingStatement, Environment.NewLine + GetUsingStatement(nameSpace));
-        }
-
-        protected virtual int GetIndexOfTheEndOfTheLastUsingStatement(string file)
-        {
-            var indexOfPublicClassDeclaration = GetIndexOfWhereDependsOnWillBeAdded(file);
-            file = file.Substring(0, indexOfPublicClassDeclaration);
-
-            var indexOfTheStartOfLastUsingStatement =
-                file.LastIndexOf("using ", StringComparison.Ordinal);
-
-            if (indexOfTheStartOfLastUsingStatement < 0)
-            {
-                return 0;
-            }
-
-            var indexOfFirstSemiColonAfterLastUsingStatement =
-                file.Substring(indexOfTheStartOfLastUsingStatement).IndexOf(';');
-
-            if (indexOfFirstSemiColonAfterLastUsingStatement < 0)
-            {
-                return 0;
-            }
-
-            return indexOfTheStartOfLastUsingStatement
-                   + indexOfFirstSemiColonAfterLastUsingStatement + 1;
         }
 
         protected virtual int GetIndexOfWhereDependsOnWillBeAdded(string file)
@@ -79,11 +53,6 @@ namespace Volo.Abp.Cli.ProjectModification
         protected virtual string GetDependsOnAttribute(string moduleName)
         {
             return "[DependsOn(typeof(" + moduleName + "))]" + Environment.NewLine + "    ";
-        }
-
-        protected virtual string GetUsingStatement(string nameSpace)
-        {
-            return "using " + nameSpace + ";";
         }
 
         protected virtual void ParseModuleNameAndNameSpace(string module, out string nameSpace, out string moduleName)
